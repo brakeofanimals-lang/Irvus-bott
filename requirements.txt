@@ -1,5 +1,7 @@
-python-telegram-bot
-requests
 flask
-gunicorn
+requests
+python-telegram-bot[job-queue]==20.8
+Pillow
+
+
 
