@@ -2,11 +2,11 @@ import os, requests, asyncio
 from flask import Flask
 from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "MULTI-TOKEN BUY BOT ONLINE", 200
+def home(): return "IRVUS PRO V2 ONLINE", 200
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -14,89 +14,109 @@ def run_web():
 
 # --- AYARLAR ---
 TOKEN = "8621050385:AAGA6wcxbFY2rqJ9gjXVK_JNqsebJvTv_Jo"
+# Grupların hafızası: { chat_id: {"ca": "...", "lang": "tr", "last_vol": 0} }
+db = {}
 
-# Grupların hangi tokenı takip ettiğini tutan hafıza
-# Format: { grup_id: {"address": "0x...", "last_vol": 0} }
-group_settings = {}
+# --- DİL PAKETLERİ ---
+STRINGS = {
+    "tr": {
+        "welcome": "🚀 **Irvus Pro Bot'a Hoş Geldiniz!**\n\nSeni ve topluluğunu kripto dünyasında asistanın olarak desteklemeye geldim.",
+        "help": "🖼 `/ciz` veya `/draw` -> Resim çizer.\n💰 `/fiyat` veya `/price` -> Verileri getirir.\n⚙️ `/set_token` -> Botu kurar.",
+        "set_ok": "✅ **Başarılı!** Bu grup için token ayarlandı.",
+        "no_token": "❌ Önce `/set_token [kontrat]` ile kurulum yapmalısın.",
+        "buying": "🎨 Hazırlanıyor, saniyeler içinde geliyor..."
+    },
+    "en": {
+        "welcome": "🚀 **Welcome to Irvus Pro Bot!**\n\nI am here to support you and your community as a crypto assistant.",
+        "help": "🖼 `/draw` or `/ai` -> Generates image.\n💰 `/price` or `/p` -> Fetch market data.\n⚙️ `/set_token` -> Setup the bot.",
+        "set_ok": "✅ **Success!** Token has been set for this group.",
+        "no_token": "❌ Please setup first using `/set_token [CA]`.",
+        "buying": "🎨 Generating image, coming in seconds..."
+    }
+}
 
-# --- FONKSİYONLAR ---
+# --- BUTONLAR ---
+def get_start_buttons():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr"), 
+         InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")],
+        [InlineKeyboardButton("🌐 Web Site", url="https://irvus.io"),
+         InlineKeyboardButton("🐦 Twitter (X)", url="https://x.com/irvus")],
+        [InlineKeyboardButton("📊 Chart", url="https://dexscreener.com")]
+    ])
+
+# --- KOMUTLAR ---
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Please select your language / Lütfen dil seçiniz:",
+        reply_markup=get_start_buttons()
+    )
+
+async def handle_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = query.data.split("_")[1]
+    chat_id = str(query.message.chat_id)
+    
+    if chat_id not in db: db[chat_id] = {"lang": lang, "ca": None, "last_vol": 0}
+    else: db[chat_id]["lang"] = lang
+    
+    txt = STRINGS[lang]["welcome"] + "\n\n" + STRINGS[lang]["help"]
+    await query.edit_message_text(txt, parse_mode='Markdown', reply_markup=get_start_buttons())
 
 async def set_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Gruba özel token ayarlar: /set_token 0x..."""
+    chat_id = str(update.effective_chat.id)
+    lang = db.get(chat_id, {}).get("lang", "en")
+    
     if not context.args:
-        await update.message.reply_text("❌ Lütfen kontrat adresini yazın.\nÖrn: `/set_token 0x123...`", parse_mode='Markdown')
+        await update.message.reply_text("Usage: `/set_token 0x...`", parse_mode='Markdown')
         return
     
-    chat_id = str(update.effective_chat.id)
-    token_address = context.args[0]
-    
-    group_settings[chat_id] = {
-        "address": token_address,
-        "last_vol": 0
-    }
-    
-    await update.message.reply_text(f"✅ **Bot bu grup için ayarlandı!**\n\nTakip edilen kontrat:\n`{token_address}`", parse_mode='Markdown')
+    ca = context.args[0].strip()
+    if chat_id not in db: db[chat_id] = {"lang": lang}
+    db[chat_id].update({"ca": ca, "last_vol": 0})
+    await update.message.reply_text(STRINGS[lang]["set_ok"], parse_mode='Markdown')
 
-async def alimlari_tara(context: ContextTypes.DEFAULT_TYPE):
-    """Tüm kayıtlı grupları tek tek gezer ve alım var mı bakar."""
-    for chat_id, data in group_settings.items():
-        try:
-            addr = data["address"]
-            url = f"https://api.dexscreener.com/latest/dex/tokens/{addr}"
-            res = requests.get(url, timeout=10).json()
-            p = res['pairs'][0]
-            
-            current_vol = float(p.get('volume', {}).get('h24', 0))
-            
-            if data["last_vol"] > 0 and current_vol > data["last_vol"]:
-                fiyat = p.get('priceUsd', '0')
-                mcap = p.get('fdv', '0')
-                symbol = p.get('baseToken', {}).get('symbol', 'TOKEN')
-                
-                msg = (
-                    f"🚀 **{symbol} YENİ ALIM!** 🚀\n"
-                    f"🟢🟢🟢🟢🟢🟢🟢🟢🟢\n\n"
-                    f"💰 **Fiyat:** ${fiyat}\n"
-                    f"💎 **MCAP:** ${mcap:,}\n"
-                    f"📊 **Hacim:** ${current_vol:,}"
-                )
-                kb = InlineKeyboardMarkup([[InlineKeyboardButton("📈 Grafik", url=p.get('url'))]])
-                await context.bot.send_message(chat_id=chat_id, text=msg, reply_markup=kb, parse_mode='Markdown')
-            
-            group_settings[chat_id]["last_vol"] = current_vol
-        except: continue
-
-async def fiyat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
-    if chat_id not in group_settings:
-        await update.message.reply_text("❌ Önce `/set_token [adres]` ile token kurmalısın.")
+    lang = db.get(chat_id, {}).get("lang", "en")
+    
+    if chat_id not in db or not db[chat_id].get("ca"):
+        await update.message.reply_text(STRINGS[lang]["no_token"])
         return
     
     try:
-        addr = group_settings[chat_id]["address"]
-        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{addr}").json()
+        ca = db[chat_id]["ca"]
+        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{ca}").json()
         p = r['pairs'][0]
-        msg = f"💎 **{p['baseToken']['symbol']}**\n💰 Fiyat: `${p['priceUsd']}`\n📈 24s: `%{p['priceChange']['h24']}`"
+        symbol = p['baseToken']['symbol']
+        msg = f"💎 **{symbol}**\n💰 Price: `${p['priceUsd']}`\n📈 24h: `%{p['priceChange']['h24']}`"
         await update.message.reply_text(msg, parse_mode='Markdown')
-    except: await update.message.reply_text("❌ Veri hatası.")
+    except: await update.message.reply_text("❌ Error.")
 
-async def ciz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def draw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    lang = db.get(chat_id, {}).get("lang", "en")
     prompt = " ".join(context.args)
     if not prompt: return
+    
+    await update.message.reply_text(STRINGS[lang]["buying"])
     img = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}?width=1024&height=1024&nologo=true"
-    await update.message.reply_photo(photo=img, caption=f"🖼 **AI:** {prompt}")
+    await update.message.reply_photo(photo=img, caption=f"🖼 AI: {prompt}")
 
-# --- MOTOR ---
+# --- ANA MOTOR ---
 if __name__ == '__main__':
     Thread(target=run_web, daemon=True).start()
     app_tg = Application.builder().token(TOKEN).build()
     
-    app_tg.add_handler(CommandHandler("set_token", set_token))
-    app_tg.add_handler(CommandHandler("fiyat", fiyat))
-    app_tg.add_handler(CommandHandler("ciz", ciz))
+    # Komutlar ve Aliaslar
+    app_tg.add_handler(CommandHandler("start", start))
+    app_tg.add_handler(CommandHandler(["fiyat", "price", "p"], price_command))
+    app_tg.add_handler(CommandHandler(["ciz", "draw", "ai"], draw_command))
+    app_tg.add_handler(CommandHandler(["set_token", "setup", "kur"], set_token))
+    app_tg.add_handler(CallbackQueryHandler(handle_lang, pattern="^lang_"))
     
-    # 30 saniyede bir tüm grupları denetle
-    app_tg.job_queue.run_repeating(alimlari_tara, interval=30, first=5)
-    
+    print(">>> IRVUS PRO V2 AKTIF!")
     app_tg.run_polling(drop_pending_updates=True)
-    
+        
