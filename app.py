@@ -4,7 +4,7 @@ from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# --- WEB SUNUCUSU (Render Kapanmasın Diye) ---
+# --- WEB SUNUCUSU (Render İçin) ---
 app = Flask(__name__)
 @app.route('/')
 def home(): return "IRVUS BOT AKTIF", 200
@@ -31,9 +31,7 @@ async def fiyat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ciz_arka_plan(update, prompt):
     try:
-        # Hızlı ve ücretsiz resim motoru
         image_url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}?width=1024&height=1024&nologo=true"
-        # Resmi Telegram'a gönder
         await update.message.reply_photo(photo=image_url, caption=f"🖼 **AI Çizimi:** {prompt}")
     except:
         await update.message.reply_text("❌ Çizim motoruna şu an ulaşılamıyor.")
@@ -43,23 +41,24 @@ async def ciz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not prompt:
         await update.message.reply_text("❌ Örn: `/ciz blue dragon` yazmalısın.")
         return
-    
-    await update.message.reply_text(f"🎨 **'{prompt}'** çiziliyor, saniyeler içinde grupta!")
-    # Arka planda çizdirme işlemi (Botu kilitlemez)
+    await update.message.reply_text(f"🎨 **'{prompt}'** çiziliyor...")
     asyncio.create_task(ciz_arka_plan(update, prompt))
 
-# --- ANA ÇALIŞTIRICI ---
-if __name__ == '__main__':
+# --- ANA ÇALIŞTIRICI (MODERN YAPI) ---
+def main():
     # Web sunucusunu başlat
     Thread(target=run_web, daemon=True).start()
     
-    # Bot uygulamasını kur
+    # Yeni nesil Application başlatma
     application = Application.builder().token(TOKEN).build()
     
     # Komutları ekle
     application.add_handler(CommandHandler(["fiyat", "p", "price"], fiyat))
     application.add_handler(CommandHandler(["ciz", "draw"], ciz))
     
-    print(">>> BOT BASLATILDI (v20+)")
+    print(">>> BOT BAŞLATILDI")
     application.run_polling(drop_pending_updates=True)
+
+if __name__ == '__main__':
+    main()
     
