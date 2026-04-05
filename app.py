@@ -1,17 +1,16 @@
 import os
-import asyncio
 import requests
 from flask import Flask
 from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# --- 1. WEB SUNUCUSU (RENDER KAPISI) ---
+# --- 1. WEB SUNUCUSU (RENDER İÇİN) ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "OK", 200
+    return "BOT AKTIF", 200
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -25,6 +24,7 @@ API_URL = "https://api-inference.huggingface.co/models/prompthero/openjourney"
 
 # --- 3. KOMUTLAR ---
 
+# FIYAT FONKSİYONU
 async def fiyat_gonder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         res = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{TOKEN_ADRESI}", timeout=10).json()
@@ -32,44 +32,47 @@ async def fiyat_gonder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = f"💎 **$IRVUS**\n💰 Fiyat: ${pair.get('priceUsd')}\n📈 24s: %{pair.get('priceChange', {}).get('h24')}"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("📈 Grafik", url=pair.get('url'))]])
         await update.message.reply_text(msg, reply_markup=kb, parse_mode='Markdown')
-    except:
-        await update.message.reply_text("❌ Veri hatası.")
+    except Exception as e:
+        await update.message.reply_text("❌ Fiyat verisi şu an çekilemiyor.")
 
-async def ciz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# CIZ FONKSİYONU
+async def ciz_komutu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = " ".join(context.args)
     if not prompt:
         await update.message.reply_text("❌ Örn: `/ciz car`")
         return
 
-    durum = await update.message.reply_text("🎨 AI Çizime Başladı...")
-    
+    durum = await update.message.reply_text("🎨 AI Çizime Başladı... Lütfen bekleyin.")
     try:
         headers = {"Authorization": f"Bearer {HF_TOKEN}"}
         response = requests.post(API_URL, headers=headers, json={"inputs": prompt}, timeout=90)
         
         if response.status_code == 200:
-            # Resim başarıyla gelirse gönder
             await update.message.reply_photo(photo=response.content, caption=f"🖼 **Sonuç:** {prompt}")
         else:
-            await update.message.reply_text("💤 AI şu an meşgul, 30 saniye sonra tekrar deneyin.")
+            await update.message.reply_text("💤 AI meşgul (Uyanıyor), birazdan tekrar deneyin.")
     except Exception as e:
-        await update.message.reply_text("❌ Hata oluştu.")
+        await update.message.reply_text("❌ Çizim hatası oluştu.")
     finally:
-        await durum.delete()
+        try:
+            await durum.delete()
+        except:
+            pass
 
-# --- 4. ANA ÇALIŞTIRICI ---
+# --- 4. ANA MOTOR ---
 if __name__ == '__main__':
-    # Flask sunucusunu hemen başlat
+    # Flask sunucusunu hemen ayrı kolda başlat
     Thread(target=run_web, daemon=True).start()
     
-    print(">>> BOT BASLATILIYOR...")
+    print(">>> BOT RENDER ÜZERİNDE BAŞLATILIYOR...")
     
-    # Bot kurulumu (En basit ve güncel haliyle)
+    # Bot kurulumu
     application = Application.builder().token(TOKEN).build()
     
-    # Komutları ekle
+    # KOMUTLARI TEK TEK EKLEYELİM (HATA ALMAMAK İÇİN)
     application.add_handler(CommandHandler("fiyat", fiyat_gonder))
-    application.add_handler(CommandHandler(["ciz", "çiz"], ciz))
+    application.add_handler(CommandHandler("ciz", ciz_komutu))
+    application.add_handler(CommandHandler("çiz", ciz_komutu))
     
     # Botu çalıştır
     application.run_polling(drop_pending_updates=True)
