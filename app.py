@@ -1,4 +1,4 @@
-import os, requests, asyncio
+import os, requests, asyncio, json
 from flask import Flask
 from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -6,116 +6,140 @@ from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQuer
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "IRVUS ENGINE V26 ONLINE", 200
+def home(): return "IRVUS MASTERPIECE V28 ONLINE", 200
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
 TOKEN = "8621050385:AAGA6wcxbFY2rqJ9gjXVK_JNqsebJvTv_Jo"
-db = {} # { chat_id: {"ca": "...", "emoji": "🟢", "min_buy": 0, "media": True, "last_vol": 0} }
+CONFIG_FILE = "config.json"
+# Alım Mesajı Resmi
+BUY_IMAGE = "https://w7.pngwing.com/pngs/341/365/png-transparent-irvus-token-logo-warrior-green.png"
 
-def get_settings_buttons(chat_id):
-    data = db.get(chat_id, {})
-    emoji = data.get("emoji", "🟢")
-    min_buy = data.get("min_buy", "0")
-    media = "🚫" if not data.get("media", True) else "🖼"
+# --- HAFIZA SİSTEMİ (UNUTMAZ) ---
+def load_config():
+    if not os.path.exists(CONFIG_FILE): return {}
+    with open(CONFIG_FILE, 'r') as f: return json.load(f)
+
+def save_config(data):
+    with open(CONFIG_FILE, 'w') as f: json.dump(data, f)
+
+db = load_config() # Açılışta dosyadan yükle
+
+# --- ANA MENÜ BUTONLARI ---
+def get_start_buttons():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"{media} Gif / Image", callback_data="act_media"), InlineKeyboardButton(f"⬆️ Min Buy ${min_buy}", callback_data="act_min")],
-        [InlineKeyboardButton(f"{emoji} Buy Emoji", callback_data="act_emoji"), InlineKeyboardButton("💰 Buy Step $10", callback_data="act_step")],
-        [InlineKeyboardButton("⚙️ Group Settings", callback_data="act_group")],
-        [InlineKeyboardButton("🔹 Premium (Ad-Free) 🔹", url="https://www.irvustoken.xyz")]
+        [InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr"), InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")],
+        [InlineKeyboardButton("🌐 Web Site", url="https://www.irvustoken.xyz"), InlineKeyboardButton("🐦 Twitter (X)", url="https://x.com/IRVUSTOKEN")]
     ])
 
 # --- ALIM SNIPER ---
 async def track_buys(context: ContextTypes.DEFAULT_TYPE):
-    for chat_id, data in db.items():
-        if not data.get("ca"): continue
-        try:
-            r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{data['ca']}", timeout=5).json()
-            p = r['pairs'][0]
-            vol = float(p.get('volume', {}).get('h24', 0))
-            if data.get("last_vol", 0) > 0 and vol > data["last_vol"]:
-                diff = vol - data["last_vol"]
-                if diff >= float(data.get("min_buy", 0)):
-                    txt = f"🚀 **NEW BUY!**\n{data.get('emoji','🟢')*5}\n\n💰 Price: `${p['priceUsd']}`\n📊 Vol: `${int(diff):,}`"
-                    await context.bot.send_message(chat_id, txt, parse_mode='Markdown')
-            db[chat_id]["last_vol"] = vol
-        except: continue
+    # Bu fonksiyon 30 saniyede bir arkada çalışır
+    global db
+    if not db.get("ca"): return # Kurulum yoksa hiçbir şey yapma
+    
+    try:
+        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{db['ca']}", timeout=5).json()
+        if not r.get('pairs'): return
+        p = r['pairs'][0]
+        vol = float(p.get('volume', {}).get('h24', 0))
+        
+        # Eğer hacim arttıysa yeni alım vardır
+        if db.get("last_vol", 0) > 0 and vol > db["last_vol"]:
+            diff = vol - db["last_vol"]
+            if diff > 10: # 10 dolar üzerindeki artışları "Alım" say
+                symbol = p['baseToken']['symbol']
+                price = p['priceUsd']
+                m_cap = p.get('fdv', 0)
+                
+                # Alım Mesajını Oluştur
+                txt = f"🟢 **{symbol} NEW BUY!**\n{'🟢'*5}\n\n" \
+                      f"💰 Buy: `${int(diff):,}`\n💵 Price: `${price}`\n💎 MCap: `${int(m_cap):,}`\n\n" \
+                      f"📈 [Grafik](p['url'])"
+                
+                # Senin Resmi Gönder
+                if db.get("chat_id"):
+                    await context.bot.send_photo(db["chat_id"], photo=BUY_IMAGE, caption=txt, parse_mode='Markdown')
+        
+        # Yeni hacmi kaydet
+        db["last_vol"] = vol
+        save_config(db) # Dosyaya yaz
+    except Exception: continue
 
 # --- KOMUTLAR ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🇹🇷 Türkçe", callback_data="l_tr"), InlineKeyboardButton("🇺🇸 English", callback_data="l_en")]])
-    await update.message.reply_text("🚀 **Irvus Pro Online!**\n\n🖼 `/ciz` | 💰 `/fiyat` | ⚙️ `/add`", reply_markup=kb)
-
-async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    ca = db.get(chat_id, {}).get("ca")
-    if not ca: return await update.message.reply_text("❌ Önce `/add` yapmalısın.")
-    try:
-        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{ca}").json()
-        p = r['pairs'][0]
-        await update.message.reply_text(f"💎 **{p['baseToken']['symbol']}**\n💰 Price: `${p['priceUsd']}`\n📊 24h: %{p['priceChange']['h24']}")
-    except: await update.message.reply_text("❌ Hata.")
-
-async def draw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    p = " ".join(context.args)
-    if not p: return
-    await update.message.reply_text("🎨 Drawing...")
-    await update.message.reply_photo(f"https://image.pollinations.ai/prompt/{p.replace(' ','%20')}?nologo=true")
+    await update.message.reply_text("🚀 **Irvus Pro Bot Online!**\n\nLütfen bir dil seçin veya kurulum yapın.\n⚙️ `/add` | 💰 `/fiyat` | 🖼 `/ciz`", reply_markup=get_start_buttons(), parse_mode='Markdown')
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Kurulumu başlat, hafızaya chat_id'yi yaz
     chat_id = str(update.effective_chat.id)
-    db[chat_id] = db.get(chat_id, {"emoji": "🟢", "min_buy": 0, "media": True})
-    db[chat_id]["step"] = "WAIT_NET"
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("ETH", callback_data="n_eth"), InlineKeyboardButton("BSC", callback_data="n_bsc"), InlineKeyboardButton("BASE", callback_data="n_base")]])
+    global db
+    db.update({"chat_id": chat_id, "step": "WAIT_NET", "pairs": []})
+    save_config(db)
+    
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("Ethereum", callback_data="net_ETH"), InlineKeyboardButton("BSC", callback_data="net_BSC"), InlineKeyboardButton("Base", callback_data="net_BASE")]])
     await update.message.reply_text("➡️ **Select Chain:**", reply_markup=kb)
+
+async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Kurulan havuzun fiyatını çek
+    if not db.get("ca"): return await update.message.reply_text("❌ Önce `/add` yapmalısın.")
+    try:
+        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{db['ca']}").json()
+        p = r['pairs'][0]
+        msg = f"💎 **{p['baseToken']['symbol']}**\n💰 Price: `${p['priceUsd']}`\n📊 24h: %{p['priceChange']['h24']}"
+        await update.message.reply_text(msg)
+    except: pass
+
+async def draw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # AI Resim Çizme
+    p = " ".join(context.args)
+    if not p: return await update.message.reply_text("❌ Örn: `/ciz uzay` yazmalısın.")
+    await update.message.reply_text("🎨 Drawing...")
+    await update.message.reply_photo(f"https://image.pollinations.ai/prompt/{p.replace(' ','%20')}?nologo=true")
 
 # --- CALLBACKS ---
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    chat_id = str(query.message.chat_id)
     await query.answer()
+    global db
 
-    if query.data.startswith("n_"):
-        db[chat_id]["step"] = "WAIT_CA"
+    if query.data.startswith("lang_"):
+        l = query.data.split("_")[1]
+        txt = "Daha hızlı kurulum için `/add` yazın." if l == "tr" else "Type `/add` for fast setup."
+        await query.edit_message_text(f"✅ Language: {l.upper()}\n\n{txt}")
+
+    elif query.data.startswith("net_"):
+        db["step"] = "WAIT_CA"
+        save_config(db)
         await query.edit_message_text(f"🟡 **{query.data[2:].upper()} Token Address?**")
+
     elif query.data.startswith("idx_"):
+        # Havuzu seç ve betona göm
         idx = int(query.data.split("_")[1])
-        pair = db[chat_id]["pairs"][idx]
-        db[chat_id].update({"ca": pair['addr'], "step": "DONE", "last_vol": 0})
-        await query.edit_message_text(f"✅ **{pair['sym']}** Setup Done!", reply_markup=get_settings_buttons(chat_id))
-    elif query.data == "act_media":
-        db[chat_id]["media"] = not db[chat_id].get("media", True)
-        await query.edit_message_reply_markup(reply_markup=get_settings_buttons(chat_id))
-    elif query.data == "act_emoji":
-        db[chat_id]["step"] = "ASK_EMOJI"
-        await query.message.reply_text("✨ Send the new emoji:")
-    elif query.data == "act_min":
-        db[chat_id]["step"] = "ASK_MIN"
-        await query.message.reply_text("💰 Enter min buy amount ($):")
+        pair = db["pairs"][idx]
+        db.update({"ca": pair['addr'], "step": "DONE", "last_vol": 0, "pairs": []})
+        save_config(db) # Dosyaya kaydet
+        await query.edit_message_text(f"✅ **{pair['sym']}** Setup Done! Bot now tracks buys.")
 
 # --- MESSAGES ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    user_data = db.get(chat_id, {})
     txt = update.message.text.strip()
+    global db
 
-    if user_data.get("step") == "WAIT_CA":
+    if db.get("step") == "WAIT_CA":
         try:
-            r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{txt}").json()
+            r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{txt}", timeout=10).json()
             pairs = r.get('pairs', [])
-            db[chat_id]["pairs"] = [{"addr": p['pairAddress'], "sym": p['baseToken']['symbol']} for p in pairs[:5]]
-            btns = [[InlineKeyboardButton(f"✅ {p['baseToken']['symbol']}", callback_data=f"idx_{i}")] for i, p in enumerate(pairs[:5])]
-            db[chat_id]["step"] = "SELECT_PAIR"
-            await update.message.reply_text("ℹ️ Select Pair:", reply_markup=InlineKeyboardMarkup(btns))
+            db["pairs"] = [{"addr": p['pairAddress'], "sym": p['baseToken']['symbol']} for p in pairs[:5]]
+            save_config(db)
+            
+            btns = [[InlineKeyboardButton(f"✅ {p['baseToken']['symbol']} / {p['quoteToken']['symbol']}", callback_data=f"idx_{i}")] for i, p in enumerate(pairs[:5])]
+            db["step"] = "SELECT_PAIR"
+            save_config(db)
+            await update.message.reply_text("ℹ️ Select Pair Listed Below:", reply_markup=InlineKeyboardMarkup(btns))
         except: await update.message.reply_text("❌ Error.")
-    elif user_data.get("step") == "ASK_EMOJI":
-        db[chat_id].update({"emoji": txt, "step": "DONE"})
-        await update.message.reply_text(f"✅ Emoji: {txt}", reply_markup=get_settings_buttons(chat_id))
-    elif user_data.get("step") == "ASK_MIN":
-        db[chat_id].update({"min_buy": txt, "step": "DONE"})
-        await update.message.reply_text(f"✅ Min Buy: ${txt}", reply_markup=get_settings_buttons(chat_id))
 
 if __name__ == '__main__':
     Thread(target=run_web, daemon=True).start()
@@ -126,6 +150,10 @@ if __name__ == '__main__':
     app_tg.add_handler(CommandHandler(["ciz", "draw"], draw_command))
     app_tg.add_handler(CallbackQueryHandler(handle_callback))
     app_tg.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app_tg.job_queue.run_repeating(track_buys, interval=30, first=10)
+    
+    # 30 saniyede bir alımları kontrol et
+    if app_tg.job_queue:
+        app_tg.job_queue.run_repeating(track_buys, interval=30, first=10)
+        
     app_tg.run_polling(drop_pending_updates=True)
-            
+    
