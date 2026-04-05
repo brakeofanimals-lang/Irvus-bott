@@ -3,7 +3,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # --- AYARLAR ---
-# Yeni Token'ını buraya eksiksiz yerleştirdim
 TOKEN = "8621050385:AAGA6wcxbFY2rqJ9gjXVK_JNqsebJvTv_Jo"
 TOKEN_ADRESI = "0x31EDA2dfd01c9C65385cCE6099B24b06ef3aE831"
 
@@ -15,34 +14,38 @@ async def get_token_data():
         fiyat = pair.get('priceUsd', '0.00')
         degisim = pair.get('priceChange', {}).get('h24', '0.00')
         emoji = "🚀" if float(degisim) > 0 else "📉"
-        msg = f"💎 **$IRVUS Güncel Durum**\n\n💰 **Fiyat:** ${fiyat}\n{emoji} **24s Değişim:** %{degisim}"
-        return pair.get('url'), msg
-    except Exception as e:
-        print(f"Veri çekme hatası: {e}")
-        return None, "❌ Veri şu an çekilemiyor (DexScreener)."
+        return pair.get('url'), f"💎 **$IRVUS**\n💰 Fiyat: ${fiyat}\n{emoji} Değişim: %{degisim}"
+    except: return None, "❌ Veri hatası."
 
 async def fiyat_gonder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url, msg = await get_token_data()
-    if url:
-        kb = [[InlineKeyboardButton("📈 Grafik", url=url)]]
-        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
-    else:
-        await update.message.reply_text(msg)
+    if url: await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📈 Grafik", url=url)]]), parse_mode='Markdown')
+    else: await update.message.reply_text(msg)
 
-def main():
-    # Render ve Python 3.14 uyumlu en sade kurulum
+# --- ANA MOTOR (MODERN YÖNTEM) ---
+async def run_bot():
     print(">>> BOT HAZIRLANIYOR...")
-    
     application = Application.builder().token(TOKEN).build()
-    
-    # Komutları ekle
     application.add_handler(CommandHandler("fiyat", fiyat_gonder))
     
-    print(">>> BOT RENDER ÜZERİNDE RESMEN BAŞLATILDI!")
+    print(">>> BOT RENDER ÜZERİNDE BAŞLATILDI!")
     
-    # Bekleyen mesajları temizle ve dinlemeye başla
-    application.run_polling(drop_pending_updates=True)
+    # Python 3.14 için en güvenli başlatma:
+    async with application:
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling(drop_pending_updates=True)
+        # Botu sonsuza kadar açık tut:
+        while True:
+            await asyncio.sleep(3600)
 
 if __name__ == '__main__':
-    main()
+    # Render'daki 'no current event loop' hatasını çözen kısım:
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    loop.run_until_complete(run_bot())
     
