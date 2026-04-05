@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQuer
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "IRVUS PRO V3 ONLINE", 200
+def home(): return "IRVUS PRO V4 ONLINE", 200
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -14,7 +14,6 @@ def run_web():
 
 # --- AYARLAR ---
 TOKEN = "8621050385:AAGA6wcxbFY2rqJ9gjXVK_JNqsebJvTv_Jo"
-# Grupların hafızası
 db = {}
 
 # --- DİL PAKETLERİ ---
@@ -37,13 +36,13 @@ STRINGS = {
     }
 }
 
-# --- BUTONLAR ---
+# --- START BUTONLARI (Twitter & Web Dahil) ---
 def get_start_buttons():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr"), 
          InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")],
-        [InlineKeyboardButton("🌐 Web Site", url="https://www.irvustoken.xyz"),
-         InlineKeyboardButton("🐦 Twitter (X)", url="https://x.com/irvus")] # Buraya Twitter adresini sonra yazarsın
+        [InlineKeyboardButton("🌐 Web Sitesi", url="https://www.irvustoken.xyz"),
+         InlineKeyboardButton("🐦 Twitter (X)", url="https://x.com/irvustoken")] # Twitter linki eklendi!
     ])
 
 # --- KOMUTLAR ---
@@ -91,32 +90,5 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         symbol = p['baseToken']['symbol']
         msg = f"💎 **{symbol} Güncel Durum**\n\n💰 Fiyat: `${p['priceUsd']}`\n📈 24s Değişim: `%{p['priceChange']['h24']}`"
         
-        # Sadece Grafik Butonu
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton(STRINGS[lang]["chart_btn"], url=p['url'])]])
-        await update.message.reply_text(msg, reply_markup=kb, parse_mode='Markdown')
-    except: await update.message.reply_text("❌ Error.")
-
-async def draw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    lang = db.get(chat_id, {}).get("lang", "en")
-    prompt = " ".join(context.args)
-    if not prompt: return
-    
-    await update.message.reply_text(STRINGS[lang]["drawing"])
-    img = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}?width=1024&height=1024&nologo=true"
-    await update.message.reply_photo(photo=img, caption=f"🖼 AI: {prompt}")
-
-# --- ANA MOTOR ---
-if __name__ == '__main__':
-    Thread(target=run_web, daemon=True).start()
-    app_tg = Application.builder().token(TOKEN).build()
-    
-    app_tg.add_handler(CommandHandler("start", start))
-    app_tg.add_handler(CommandHandler(["fiyat", "price", "p"], price_command))
-    app_tg.add_handler(CommandHandler(["ciz", "draw", "ai"], draw_command))
-    app_tg.add_handler(CommandHandler(["set_token", "setup", "kur"], set_token))
-    app_tg.add_handler(CallbackQueryHandler(handle_lang, pattern="^lang_"))
-    
-    print(">>> IRVUS PRO V3 AKTIF!")
-    app_tg.run_polling(drop_pending_updates=True)
+        # F
         
