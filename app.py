@@ -1,71 +1,62 @@
-import os
-import requests
+import os, requests, asyncio
 from flask import Flask
 from threading import Thread
-from telegram import Update, ParseMode
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-# Render için web sunucusu
+# Render Portu için Web Sunucusu
 app = Flask(__name__)
 @app.route('/')
-def home(): return "IRVUS CORE AKTIF", 200
+def home(): return "IRVUS AKTIF", 200
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# --- AYARLAR ---
+# AYARLAR
 TOKEN = "8621050385:AAESXIZLT6HbS3CGeT-sT-HJcgvFuJF8ff0"
 IRVUS_CA = "0x31EDA2dfd01c9C65385cCE6099B24b06ef3aE831"
 filtered_words = []
 
-# --- KOMUTLAR ---
-
-def fiyat(update: Update, context: CallbackContext):
+async def fiyat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{IRVUS_CA}").json()
+        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{IRVUS_CA}", timeout=10).json()
         f = r['pairs'][0]['priceUsd']
-        update.message.reply_text(f"💎 **$IRVUS Fiyat:** `${f}`", parse_mode=ParseMode.MARKDOWN)
-    except:
-        update.message.reply_text("❌ Fiyat şu an alınamadı.")
+        await update.message.reply_text(f"💎 **$IRVUS Fiyat:** `${f}`", parse_mode='Markdown')
+    except: await update.message.reply_text("❌ Fiyat çekilemedi.")
 
-def ciz(update: Update, context: CallbackContext):
-    prompt = " ".join(context.args)
-    if not prompt:
-        update.message.reply_text("❌ Örn: /ciz warrior")
-        return
-    update.message.reply_text(f"🎨 **'{prompt}'** çiziliyor...")
-    url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}?nologo=true"
-    update.message.reply_photo(photo=url, caption=f"🖼 AI: {prompt}")
+async def ciz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    p = " ".join(context.args)
+    if not p: return await update.message.reply_text("❌ Örn: /ciz aslan")
+    await update.message.reply_text(f"🎨 **'{p}'** çiziliyor...")
+    url = f"https://image.pollinations.ai/prompt/{p.replace(' ', '%20')}?nologo=true"
+    await update.message.reply_photo(photo=url, caption=f"🖼 AI: {p}")
 
-def filter_cmd(update: Update, context: CallbackContext):
-    word = " ".join(context.args).lower()
-    if word and word not in filtered_words:
-        filtered_words.append(word)
-        update.message.reply_text(f"✅ Filtreye eklendi: {word}")
+async def filter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    w = " ".join(context.args).lower()
+    if w and w not in filtered_words:
+        filtered_words.append(w)
+        await update.message.reply_text(f"✅ Filtreye eklendi: {w}")
 
-def message_check(update: Update, context: CallbackContext):
+async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
-    text = update.message.text.lower()
     for w in filtered_words:
-        if w in text:
-            update.message.delete()
-            break
+        if w in update.message.text.lower():
+            try: await update.message.delete()
+            except: pass
 
-# --- ANA ÇALIŞTIRICI ---
 if __name__ == '__main__':
+    # Web sunucusunu başlat
     Thread(target=run_web, daemon=True).start()
     
-    # Eski nesil Updater yapısı (v13.15 için)
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
+    # Modern Application Yapısı (Hata veren yer burasıydı, düzeldi)
+    application = Application.builder().token(TOKEN).build()
     
-    dp.add_handler(CommandHandler(["fiyat", "p"], fiyat))
-    dp.add_handler(CommandHandler(["ciz", "draw"], ciz))
-    dp.add_handler(CommandHandler("filter", filter_cmd))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, message_check))
+    application.add_handler(CommandHandler(["fiyat", "p"], fiyat))
+    application.add_handler(CommandHandler(["ciz", "draw"], ciz))
+    application.add_handler(CommandHandler("filter", filter_cmd))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, msg_handler))
     
-    print(">>> BOT SIFIRLANDI VE AKTIF")
-    updater.start_polling(drop_pending_updates=True)
-    updater.idle()
+    print(">>> BOT BASLATILDI")
+    application.run_polling(drop_pending_updates=True)
     
