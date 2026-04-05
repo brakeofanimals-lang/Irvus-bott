@@ -14,7 +14,7 @@ def run_flask():
     app.run(host='0.0.0.0', port=port)
 
 # --- AYARLAR ---
-TOKEN = "8621050385:AAGFTwrCTwa-Ai-ywmzO6BOqo2J2wLTRHdg"
+TOKEN = "8621050385:AAGA6wcxbFY2rqJ9gjXVK_JNqsebJvTv_Jo"
 TOKEN_ADRESI = "0x31EDA2dfd01c9C65385cCE6099B24b06ef3aE831"
 
 async def get_token_data():
