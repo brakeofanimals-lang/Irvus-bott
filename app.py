@@ -15,10 +15,6 @@ def run_web():
 # AYARLAR
 TOKEN = "8621050385:AAGA6wcxbFY2rqJ9gjXVK_JNqsebJvTv_Jo"
 TOKEN_ADRESI = "0x31EDA2dfd01c9C65385cCE6099B24b06ef3aE831"
-HF_TOKEN = "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"
-
-# DAHA HIZLI VE KARARLI MODEL
-API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
 
 async def fiyat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -27,31 +23,25 @@ async def fiyat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = f"💎 **$IRVUS Güncel Durum**\n\n💰 Fiyat: `${p.get('priceUsd')}`\n📈 24s: `%{p.get('priceChange', {}).get('h24')}`"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("📈 Grafik", url=p.get('url'))]])
         await update.message.reply_text(msg, reply_markup=kb, parse_mode='Markdown')
-    except: await update.message.reply_text("❌ Fiyat hatası.")
+    except: await update.message.reply_text("❌ Fiyat şu an çekilemiyor.")
 
 async def ciz_arka_plan(update, prompt):
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    payload = {"inputs": prompt, "options": {"wait_for_model": True}}
-    
-    # 3 KEZ DENEME DÖNGÜSÜ (Model uyanana kadar pes etmez)
-    for i in range(3):
-        try:
-            res = requests.post(API_URL, headers=headers, json=payload, timeout=60)
-            if res.status_code == 200:
-                await update.message.reply_photo(photo=res.content, caption=f"🖼 **AI Sonucu:** {prompt}")
-                return
-            elif res.status_code == 503: # Model uyanıyor demektir
-                if i < 2:
-                    await asyncio.sleep(10) # 10 saniye bekle ve tekrar dene
-                    continue
-        except: pass
-    
-    await update.message.reply_text("💤 AI şu an gerçekten çok yoğun, lütfen 1 dakika sonra tekrar /ciz yazın.")
+    try:
+        # Daha hızlı ve sorunsuz servis: Pollinations
+        image_url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}?width=1024&height=1024&nologo=true"
+        
+        # Resmi Telegram'a gönder
+        await update.message.reply_photo(photo=image_url, caption=f"🖼 **AI Sonucu:** {prompt}")
+    except Exception as e:
+        await update.message.reply_text("❌ Çizim sırasında bir hata oluştu.")
 
 async def ciz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = " ".join(context.args)
-    if not prompt: return
-    await update.message.reply_text(f"🎨 **'{prompt}'** hazırlanıyor... Lütfen bekleyin.")
+    if not prompt:
+        await update.message.reply_text("❌ Kullanım: /ciz araba")
+        return
+    
+    await update.message.reply_text(f"🎨 **'{prompt}'** çiziliyor... Saniyeler içinde geliyor!")
     asyncio.create_task(ciz_arka_plan(update, prompt))
 
 if __name__ == '__main__':
